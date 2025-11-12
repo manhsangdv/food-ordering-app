@@ -1,60 +1,19 @@
-// api-gateway/server.js
-const express = require('express');
-const { createProxyMiddleware } = require('http-proxy-middleware');
-const cors = require('cors');
+// frontend/src/api.js
+import axios from 'axios';
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+// Ưu tiên lấy từ biến build-time; fallback localhost:4000
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
-const RESTAURANT_URL = process.env.RESTAURANT_SERVICE_URL || 'http://localhost:4001';
-const ORDER_URL = process.env.ORDER_SERVICE_URL || 'http://localhost:4002';
-
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ service: 'api-gateway', status: 'healthy' });
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  headers: { 'Content-Type': 'application/json' },
 });
 
-// Proxy: Restaurant Service
-app.use(
-  '/api/restaurants',
-  createProxyMiddleware({
-    target: RESTAURANT_URL,
-    changeOrigin: true,
-    pathRewrite: { '^/api/restaurants': '/restaurants' },
-    logLevel: 'debug',
-    proxyTimeout: 120000,
-    timeout: 120000,
-  })
-);
+// --- Restaurant APIs ---
+export const getRestaurants = () => apiClient.get('/restaurants');
+export const getRestaurantMenu = (restaurantId) => apiClient.get(`/restaurants/${restaurantId}/menu`);
 
-// Proxy: Order Service
-app.use(
-  '/api/orders',
-  createProxyMiddleware({
-    target: ORDER_URL,
-    changeOrigin: true,
-    pathRewrite: { '^/api/orders': '/orders' },
-    logLevel: 'debug',
-    proxyTimeout: 120000,
-    timeout: 120000,
-  })
-);
+// --- Order APIs ---
+export const createOrder = (orderData) => apiClient.post('/orders', orderData);
+export const getOrderById = (orderId) => apiClient.get(`/orders/${orderId}`);
 
-// Proxy: Orders theo user
-app.use(
-  '/api/users/:userId/orders',
-  createProxyMiddleware({
-    target: ORDER_URL,
-    changeOrigin: true,
-    pathRewrite: (path) => path.replace('/api/users', '/users'),
-    logLevel: 'debug',
-    proxyTimeout: 120000,
-    timeout: 120000,
-  })
-);
-
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`✅ API Gateway running on port ${PORT}`);
-});

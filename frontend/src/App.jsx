@@ -20,63 +20,61 @@ function App() {
   const handleSelectRestaurant = (restaurant) => {
     setSelectedRestaurant(restaurant);
     setCart([]);
+
     getRestaurantMenu(restaurant._id)
       .then((res) => setMenu(res.data))
       .catch((err) => console.error('Error fetching menu:', err));
   };
 
   const addToCart = (item) => {
-    const existing = cart.find((x) => x.itemName === item.itemName);
+    const existing = cart.find((c) => c.itemName === item.itemName);
     if (existing) {
-      setCart(cart.map((x) => (x.itemName === item.itemName ? { ...x, quantity: x.quantity + 1 } : x)));
+      setCart(cart.map((c) => (c.itemName === item.itemName ? { ...c, quantity: c.quantity + 1 } : c)));
     } else {
       setCart([...cart, { ...item, quantity: 1 }]);
     }
   };
 
-  const cartTotal = cart.reduce((sum, x) => sum + x.price * x.quantity, 0);
+  const cartTotal = cart.reduce((t, i) => t + i.price * i.quantity, 0);
 
   const handlePlaceOrder = () => {
-    if (!selectedRestaurant) return alert('Chọn nhà hàng trước đã!');
+    if (!selectedRestaurant) return alert('Hãy chọn nhà hàng trước');
     if (cart.length === 0) return alert('Vui lòng thêm món vào giỏ hàng!');
 
     const orderData = {
-      userId: 'u1',
+      userId: 'user-123-test',
       restaurantId: selectedRestaurant._id,
-      items: cart.map((x) => ({ itemName: x.itemName, quantity: x.quantity })),
+      items: cart.map((i) => ({ itemName: i.itemName, quantity: i.quantity })),
       totalPrice: cartTotal,
     };
 
     createOrder(orderData)
       .then((res) => {
         setLastOrder(res.data);
-        setOrderStatus(res.data.status); // PENDING
+        setOrderStatus(res.data.status);
         setCart([]);
         setMenu([]);
         setSelectedRestaurant(null);
-        alert(`Đặt hàng thành công! Mã đơn: ${res.data._id}`);
         trackOrderStatus(res.data._id);
+        alert(`Đặt hàng thành công! Mã đơn: ${res.data._id}`);
       })
-      .catch((err) => {
-        console.error('Error placing order:', err);
-        alert('Tạo đơn thất bại. Hãy thử lại sau vài giây (RabbitMQ có thể chưa sẵn sàng).');
-      });
+      .catch((err) => console.error('Error placing order:', err));
   };
 
   const trackOrderStatus = (orderId) => {
-    const interval = setInterval(() => {
+    const iv = setInterval(() => {
       getOrderById(orderId)
         .then((res) => {
           const s = res.data.status;
           setOrderStatus(s);
           if (s === 'DELIVERED') {
-            clearInterval(interval);
+            clearInterval(iv);
             alert(`Đơn hàng ${orderId} đã giao thành công!`);
           }
         })
         .catch((err) => {
           console.error('Error tracking order:', err);
-          clearInterval(interval);
+          clearInterval(iv);
         });
     }, 5000);
   };
@@ -128,9 +126,9 @@ function App() {
   return (
     <div className="App">
       <h1>Chọn nhà hàng</h1>
-      {restaurants.map((res) => (
-        <div key={res._id} className="restaurant" onClick={() => handleSelectRestaurant(res)}>
-          {res.name}
+      {restaurants.map((r) => (
+        <div key={r._id} className="restaurant" onClick={() => handleSelectRestaurant(r)}>
+          {r.name}
         </div>
       ))}
     </div>
