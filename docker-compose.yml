@@ -1,0 +1,76 @@
+version: '3.9'
+
+services:
+  api-gateway:
+    build: ./api-gateway
+    ports: ["4000:4000"]
+    environment:
+      - RESTAURANT_SERVICE_URL=http://restaurant-service:4001
+      - ORDER_SERVICE_URL=http://order-service:4002
+    networks: [food-network]
+    depends_on:
+      - restaurant-service
+      - order-service
+
+  restaurant-service:
+    build: ./restaurant-service
+    ports: ["4001:4001"]
+    environment:
+      - PORT=4001
+      - MONGO_URI=mongodb://mongodb:27017/food_delivery_db
+    networks: [food-network]
+    depends_on:
+      - mongodb
+
+  order-service:
+    build: ./order-service
+    ports: ["4002:4002"]
+    environment:
+      - PORT=4002
+      - MONGO_URI=mongodb://mongodb:27017/food_delivery_db
+      - RABBITMQ_URI=amqp://rabbitmq:5672
+    networks: [food-network]
+    depends_on:
+      - mongodb
+      - rabbitmq
+
+  payment-service:
+    build: ./payment-service
+    environment:
+      - RABBITMQ_URI=amqp://rabbitmq:5672
+    networks: [food-network]
+    depends_on:
+      - rabbitmq
+
+  delivery-service:
+    build: ./delivery-service
+    ports: ["4004:4004"]
+    environment:
+      - PORT=4004
+      - RABBITMQ_URI=amqp://rabbitmq:5672
+    networks: [food-network]
+    depends_on:
+      - rabbitmq
+
+  mongodb:
+    image: mongo:latest
+    ports: ["27017:27017"]
+    volumes: [mongo-data:/data/db]
+    networks: [food-network]
+    healthcheck:
+      test: ["CMD", "bash", "-lc", "echo > /dev/tcp/localhost/27017"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports: ["5672:5672","15672:15672"]
+    networks: [food-network]
+
+networks:
+  food-network:
+    driver: bridge
+
+volumes:
+  mongo-data:
