@@ -2,30 +2,56 @@
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const cors = require('cors');
+const bodyParser = require('body-parser');
 
 const app = express();
+app.disable('x-powered-by');
 app.use(cors());
-// Vẫn giữ JSON để các route /health hoặc route nội bộ khác dùng,
-// nhưng với proxy POST/PUT ta sẽ re-stream body bằng onProxyReq.
-app.use(express.json());
+
+// Lưu lại raw body để re-stream về upstream (tránh Empty reply)
+app.use(
+  bodyParser.json({
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    },
+    limit: '2mb',
+  })
+);
 
 const RESTAURANT_URL = process.env.RESTAURANT_SERVICE_URL || 'http://restaurant-service:4001';
 const ORDER_URL = process.env.ORDER_SERVICE_URL || 'http://order-service:4002';
 
-// helper: re-stream JSON body (fix "Empty reply from server")
-function restreamJsonBody(proxyReq, req) {
-  if (!req.body || !Object.keys(req.body).length) return;
-  const bodyData = JSON.stringify(req.body);
-  proxyReq.setHeader('Content-Type', 'application/json');
-  proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
-  proxyReq.write(bodyData);
-}
+const restreamJsonBody = (proxyReq, req) => {
+  // Xóa header Expect: 100-continue (thủ phạm khiến request bị treo)
+  try {
+    proxyReq.setHeader('Expect', '');
+  } catch {}
+  const bodyData =
+    req.rawBody && req.rawBody.length
+      ? req.rawBody
+      : req.body && Object.keys(req.body).length
+      ? Buffer.from(JSON.stringify(req.body))
+      : null;
 
-app.get('/health', (req, res) => {
+  if (bodyData) {
+    proxyReq.setHeader('Content-Type', 'application/json');
+    proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+    proxyReq.write(bodyData);
+  }
+};
+
+const onProxyError = (err, req, res) => {
+  console.error('[gateway] proxy error:', err.code || err.message);
+  if (!res.headersSent) {
+    res.status(502).json({ error: 'Bad Gateway', code: err.code || 'PROXY_ERROR' });
+  }
+};
+
+app.get('/health', (_req, res) => {
   res.json({ service: 'api-gateway', status: 'healthy' });
 });
 
-// Proxy: Restaurant Service
+// Restaurant
 app.use(
   '/api/restaurants',
   createProxyMiddleware({
@@ -35,11 +61,12 @@ app.use(
     logLevel: 'debug',
     proxyTimeout: 120000,
     timeout: 120000,
-    onProxyReq: (proxyReq, req) => restreamJsonBody(proxyReq, req),
+    onProxyReq: restreamJsonBody,
+    onError: onProxyError,
   })
 );
 
-// Proxy: Order Service
+// Order
 app.use(
   '/api/orders',
   createProxyMiddleware({
@@ -49,11 +76,12 @@ app.use(
     logLevel: 'debug',
     proxyTimeout: 120000,
     timeout: 120000,
-    onProxyReq: (proxyReq, req) => restreamJsonBody(proxyReq, req),
+    onProxyReq: restreamJsonBody,
+    onError: onProxyError,
   })
 );
 
-// Proxy: Orders theo user
+// Orders theo user
 app.use(
   '/api/users/:userId/orders',
   createProxyMiddleware({
@@ -63,11 +91,13 @@ app.use(
     logLevel: 'debug',
     proxyTimeout: 120000,
     timeout: 120000,
-    onProxyReq: (proxyReq, req) => restreamJsonBody(proxyReq, req),
+    onProxyReq: restreamJsonBody,
+    onError: onProxyError,
   })
 );
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`✅ API Gateway running on port ${PORT}`);
+  console.log(`[env] RESTAURANT_URL=${RESTAURANT_URL} | ORDER_URL=${ORDER_URL}`);
 });
